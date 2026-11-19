@@ -1,0 +1,24 @@
+# 构建产物
+build/
+app/build/
+captures/
+.gradle/
+.kotlin/
+
+# 本机路径与 IDE
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# 签名密钥（绝对不能提交）
+*.jks
+*.keystore
+keystore.properties
+release.keystore
+
+# 其他
+.env
+*.log
+.externalNativeBuild
+.cxx

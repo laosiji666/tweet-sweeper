@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude
+        domain="sharedpref"
+        path="ts_secure_auth.xml" />
+    <exclude
+        domain="sharedpref"
+        path="ts_plain_auth.xml" />
+</full-backup-content>

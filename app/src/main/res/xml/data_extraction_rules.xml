@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude
+            domain="sharedpref"
+            path="ts_secure_auth.xml" />
+        <exclude
+            domain="sharedpref"
+            path="ts_plain_auth.xml" />
+    </cloud-backup>
+    <device-transfer />
+</data-extraction-rules>
