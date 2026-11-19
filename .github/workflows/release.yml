@@ -55,7 +55,9 @@ jobs:
       - name: Build release APK
         run: |
           if [ -n "$VERSION" ]; then
-            ./gradlew assembleRelease --no-daemon -PversionName="$VERSION"
+            CODE=$(echo "$VERSION" | awk -F. '{printf "%d%02d%02d", $1, $2, $3}')
+            echo "versionName=$VERSION versionCode=$CODE"
+            ./gradlew assembleRelease --no-daemon -PversionName="$VERSION" -PversionCode="$CODE"
           else
             ./gradlew assembleRelease --no-daemon
           fi

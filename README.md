@@ -93,6 +93,17 @@ cd tweet-sweeper
 
 > 在 aarch64 Linux（例如 proot 里的 Ubuntu）上构建时，需要把 `android.aapt2FromMavenOverride` 指向 aarch64 版 aapt2，官方只发 x86_64。
 
+## 发版
+
+```bash
+# 1. 改代码、提交
+git commit -am "feat: ..."
+# 2. 打 tag 并推送，CI 自动构建签名包 + 发布 Release
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+版本号由 tag 推导（`v1.2.3` → versionName `1.2.3`、versionCode `10203`），签名密钥存在仓库 Secrets 里，构建完自动上传 `TweetSweeper.apk` 到 Release。推 `main` 只跑测试和 debug 包，不占发版号。
+
 ## 目录结构
 
 ```
