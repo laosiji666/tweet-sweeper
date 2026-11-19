@@ -12,6 +12,9 @@ val keystoreProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 
+val appVersionName: String = (findProperty("versionName") as String?)?.takeIf { it.isNotBlank() } ?: "1.2.2"
+val appVersionCode: Int = (findProperty("versionCode") as String?)?.toIntOrNull() ?: 5
+
 android {
     namespace = "com.yg.tweetsweeper"
     compileSdk = 35
@@ -20,8 +23,8 @@ android {
         applicationId = "com.yg.tweetsweeper"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.2.1"
+        versionCode = appVersionCode
+        versionName = appVersionName
         vectorDrawables { useSupportLibrary = true }
     }
 
