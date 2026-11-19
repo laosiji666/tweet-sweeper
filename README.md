@@ -1,5 +1,7 @@
 # 推特清理助手 · TweetSweeper
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Android 原生 App（Kotlin + Jetpack Compose）。账号通过 **X 官方 OAuth 2.0（Authorization Code + PKCE）** 授权后，用官方 API v2 做批量取关、找不互关、封禁检测，以及点赞/转推清理。
 
 - 包名：`com.yg.tweetsweeper`
