@@ -140,7 +140,7 @@ fun SettingsScreen(vm: MainViewModel, state: UiState) {
             }
         }
 
-        SectionCard("关于", "v1.0.0 · 纯客户端实现，不经过任何中间服务器") {
+        SectionCard("关于", "v${com.yg.tweetsweeper.BuildConfig.VERSION_NAME} · 纯客户端实现，不经过任何中间服务器") {
             Text(
                 "所有请求都从这台手机直连 api.x.com；令牌保存在 Android 加密存储（EncryptedSharedPreferences）。\n\n" +
                     "用到的官方接口：\n" +
