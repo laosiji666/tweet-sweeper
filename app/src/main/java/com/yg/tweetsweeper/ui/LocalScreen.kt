@@ -57,12 +57,8 @@ fun LocalScreen(vm: LocalViewModel, state: LocalState) {
 
     val pickArchive = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            val input = runCatching { context.contentResolver.openInputStream(uri) }.getOrNull()
-            if (input == null) {
-                vm.showToast("打不开这个文件")
-            } else {
-                input.use { vm.importZip(it) }
-            }
+            // 不能在这里开流再交给协程，回调结束流就被关了
+            vm.importZip { runCatching { context.contentResolver.openInputStream(uri) }.getOrNull() }
         }
     }
 

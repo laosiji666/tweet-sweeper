@@ -1,7 +1,9 @@
 package com.yg.tweetsweeper.data
 
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.InputStream
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
 /**
@@ -13,6 +15,10 @@ import java.util.zip.ZipInputStream
  *       "userLink" : "https://twitter.com/intent/user?user_id=12345678" } } ]
  *
  * 只依赖 accountId，因此不需要任何 API 调用。
+ *
+ * 注意：X 的包有 6000+ 条目，用 [ZipInputStream] 顺序读会因为中央目录/数据描述符
+ * 错位只读到第一个条目（实测 85 MB 的真实包只返回 1 个 entry），所以这里改成
+ * 落临时文件后用 [ZipFile] 按中央目录读。
  */
 object ArchiveImporter {
 
@@ -23,43 +29,59 @@ object ArchiveImporter {
     )
 
     private val ID_RE = Regex("\"accountId\"\\s*:\\s*\"(\\d+)\"")
-    private const val MAX_BYTES = 48 * 1024 * 1024
+    private const val MAX_ENTRY_BYTES = 48 * 1024 * 1024
 
+    /** 从任意输入流解析：先落临时文件（ZipFile 需要真实路径），解析完删除。 */
     fun parse(input: InputStream, fileName: String? = null): Parsed {
-        val buffered = input.buffered(64 * 1024)
-        buffered.mark(4)
-        val head = ByteArray(2)
-        val n = buffered.read(head)
-        buffered.reset()
-        val isZip = n >= 2 && head[0] == 'P'.code.toByte() && head[1] == 'K'.code.toByte()
-        return if (isZip) parseZip(buffered) else parseJs(buffered, fileName ?: "")
+        val tmp = File.createTempFile("ts-archive-", ".zip")
+        return try {
+            input.use { src -> tmp.outputStream().use { dst -> src.copyTo(dst, 64 * 1024) } }
+            parse(tmp, fileName)
+        } finally {
+            tmp.delete()
+        }
     }
 
-    /** 直接喂进来一段 JS / JSON 文本（调试或单文件导入用） */
-    fun parseText(text: String, fileName: String = ""): Parsed = parseJs(text.byteInputStream(), fileName)
+    fun parse(file: File, fileName: String? = null): Parsed =
+        if (isZip(file)) parseZip(file) else parseJs(file.readText(), fileName ?: file.name)
 
-    private fun parseZip(input: InputStream): Parsed {
-        var following: List<String> = emptyList()
-        var follower: List<String> = emptyList()
+    /** 直接喂一段 JS / JSON 文本（调试或单文件导入用） */
+    fun parseText(text: String, fileName: String = ""): Parsed = parseJs(text, fileName)
+
+    private fun isZip(file: File): Boolean = runCatching {
+        file.inputStream().use { input ->
+            val head = ByteArray(2)
+            input.read(head) == 2 && head[0] == 'P'.code.toByte() && head[1] == 'K'.code.toByte()
+        }
+    }.getOrDefault(false)
+
+    private fun parseZip(file: File): Parsed {
+        val following = ArrayList<String>()
+        val follower = ArrayList<String>()
         val files = ArrayList<String>()
 
-        ZipInputStream(input).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
+        ZipFile(file).use { zip ->
+            val entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
+                if (entry.isDirectory) continue
                 val base = entry.name.substringAfterLast('/').lowercase()
-                if (!entry.isDirectory && (base == "following.js" || base == "follower.js")) {
-                    val ids = extractIds(readLimited(zip))
-                    if (base == "following.js") following = ids else follower = ids
-                    files += entry.name
-                }
-                zip.closeEntry()
+                if (!base.endsWith(".js")) continue
+                val isFollowing = base.startsWith("following")
+                val isFollower = base.startsWith("follower")
+                if (!isFollowing && !isFollower) continue
+                if (entry.size > MAX_ENTRY_BYTES) continue
+
+                val text = zip.getInputStream(entry).use { readLimited(it) }
+                val ids = extractIds(text)
+                if (isFollowing) following += ids else follower += ids
+                files += entry.name
             }
         }
-        return Parsed(following, follower, files)
+        return Parsed(following.distinct(), follower.distinct(), files)
     }
 
-    private fun parseJs(input: InputStream, name: String): Parsed {
-        val text = readLimited(input)
+    private fun parseJs(text: String, name: String): Parsed {
         val ids = extractIds(text)
         val lower = name.lowercase()
         val isFollower = when {
@@ -86,9 +108,21 @@ object ArchiveImporter {
             val read = input.read(buf)
             if (read <= 0) break
             total += read
-            if (total > MAX_BYTES) break
+            if (total > MAX_ENTRY_BYTES) break
             out.write(buf, 0, read)
         }
         return String(out.toByteArray(), Charsets.UTF_8)
+    }
+
+    /** 兼容老接口：保留供测试或外部使用 */
+    @Suppress("unused")
+    private fun streamEntries(file: File): List<String> = buildList {
+        ZipInputStream(file.inputStream()).use { zip ->
+            while (true) {
+                val e = zip.nextEntry ?: break
+                add(e.name)
+                zip.closeEntry()
+            }
+        }
     }
 }

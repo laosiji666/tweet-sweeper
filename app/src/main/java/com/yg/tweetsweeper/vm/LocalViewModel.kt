@@ -98,10 +98,17 @@ class LocalViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { rebuild(it.copy(hideDone = !it.hideDone)) }
     }
 
-    fun importZip(input: InputStream) {
+    /**
+     * [open] 是「打开输入流」的工厂，必须在 IO 协程内部调用：
+     * 调用方（ActivityResult 回调）返回后流会被系统关闭，先开流再丢给协程必然 Stream Closed。
+     */
+    fun importZip(open: () -> InputStream?) {
         viewModelScope.launch(Dispatchers.IO) {
             _state.update { it.copy(loading = true, toast = null) }
-            val result = runCatching { ArchiveImporter.parse(input) }
+            val result = runCatching {
+                val input = open() ?: error("打不开这个文件")
+                input.use { ArchiveImporter.parse(it) }
+            }
             result.onSuccess { parsed ->
                 if (parsed.following.isEmpty() && parsed.follower.isEmpty()) {
                     _state.update {
