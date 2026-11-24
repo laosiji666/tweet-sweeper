@@ -18,8 +18,8 @@ class LocalOrderTest {
             LocalRow("6", "不互关", kept = true)
         )
         val ordered = orderRows(rows)
-        // 未处理的保持原顺序在前；已处理的按取关时间倒序在后
-        assertEquals(listOf("1", "3", "6", "4", "5", "2"), ordered.map { it.id })
+        // 已处理的置顶（新→旧），未处理的保持原顺序在后
+        assertEquals(listOf("4", "5", "2", "1", "3", "6"), ordered.map { it.id })
     }
 
     @Test

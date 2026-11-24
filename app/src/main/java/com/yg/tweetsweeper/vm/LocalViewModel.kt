@@ -47,6 +47,8 @@ data class LocalState(
     val nonMutual: Int = 0,
     val mutual: Int = 0,
     val fanOnly: Int = 0,
+    val lastOpenedId: String? = null,
+    val showQuickKeep: Boolean = false,
     val toast: String? = null
 ) {
     val hasData: Boolean get() = following.isNotEmpty() || follower.isNotEmpty()
@@ -61,7 +63,7 @@ data class LocalState(
  * —— 最后取关的在最上面，最早取关的在最下面。
  */
 internal fun orderRows(rows: List<LocalRow>): List<LocalRow> =
-    rows.filter { !it.done } + rows.filter { it.done }.sortedByDescending { it.doneAt }
+    rows.filter { it.done }.sortedByDescending { it.doneAt } + rows.filter { !it.done }
 
 /**
  * 零成本模式：只用 X 官方数据导出（following.js / follower.js），不调用任何 API。
@@ -70,6 +72,7 @@ class LocalViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store = AppStore(app)
     private val _state = MutableStateFlow(LocalState())
+    @Volatile private var awaitingReturn = false
     val state: StateFlow<LocalState> = _state.asStateFlow()
 
     fun init() {
@@ -91,6 +94,44 @@ class LocalViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
         }
+    }
+
+    /**
+     * 点「打开」：标记已处理并记住是谁，等从 X 回来后弹快捷卡片。
+     */
+    fun openProfile(id: String) {
+        markDone(id)
+        _state.update { it.copy(lastOpenedId = id) }
+        awaitingReturn = true
+    }
+
+    /** App 回到前台：如果中途去过 X，就弹快捷卡片 */
+    fun onReturnedToApp() {
+        if (!awaitingReturn) return
+        awaitingReturn = false
+        if (_state.value.lastOpenedId == null) return
+        _state.update { it.copy(showQuickKeep = true) }
+    }
+
+    /** 快捷卡片：加入白名单（同时撤销「已处理」标记） */
+    fun quickKeep() {
+        val id = _state.value.lastOpenedId
+        if (id == null) {
+            dismissQuickKeep()
+            return
+        }
+        if (id !in _state.value.whitelist) {
+            val wl = _state.value.whitelist + id
+            store.saveWhitelist(wl)
+            _state.update { rebuild(it.copy(whitelist = wl)) }
+        }
+        undoDone(id)
+        showToast("已加入白名单")
+        dismissQuickKeep()
+    }
+
+    fun dismissQuickKeep() {
+        _state.update { it.copy(showQuickKeep = false, lastOpenedId = null) }
     }
 
     /** 点了「打开」就标记为已处理（记录时间），默认从列表里隐藏 */

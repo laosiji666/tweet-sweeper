@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +35,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +50,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yg.tweetsweeper.vm.LocalFilter
 import com.yg.tweetsweeper.vm.LocalRow
 import com.yg.tweetsweeper.vm.LocalState
@@ -67,6 +72,14 @@ fun LocalScreen(vm: LocalViewModel, state: LocalState) {
     val clipboard = LocalClipboardManager.current
     var showHelp by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) vm.onReturnedToApp()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val pickArchive = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -196,7 +209,7 @@ fun LocalScreen(vm: LocalViewModel, state: LocalState) {
                     LocalRowItem(
                         row = row,
                         onOpen = {
-                            vm.markDone(row.id)
+                            vm.openProfile(row.id)
                             openXProfile(context, row.id)
                         },
                         onUndo = { vm.undoDone(row.id) },
@@ -239,6 +252,18 @@ fun LocalScreen(vm: LocalViewModel, state: LocalState) {
                     }
                 }
             }
+        }
+
+        if (state.showQuickKeep && state.lastOpenedId != null) {
+            QuickKeepCard(
+                id = state.lastOpenedId!!,
+                kept = state.lastOpenedId in state.whitelist,
+                onKeep = { vm.quickKeep() },
+                onDone = { vm.dismissQuickKeep() },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            )
         }
 
         if (state.rows.size > 20) {
@@ -380,6 +405,50 @@ private fun LocalRowItem(
                 onClick = onOpen,
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
             ) { Text("打开", style = MaterialTheme.typography.labelMedium) }
+        }
+    }
+}
+
+@Composable
+private fun QuickKeepCard(
+    id: String,
+    kept: Boolean,
+    onKeep: () -> Unit,
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 8.dp,
+        shadowElevation = 8.dp
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(
+                "刚打开的主页",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                id,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onKeep,
+                    enabled = !kept,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp)
+                ) { Text(if (kept) "已在白名单" else "加入白名单", style = MaterialTheme.typography.labelLarge) }
+                OutlinedButton(onClick = onDone, modifier = Modifier.weight(1f)) {
+                    Text("已取关 / 关闭", style = MaterialTheme.typography.labelMedium)
+                }
+            }
         }
     }
 }

@@ -12,8 +12,8 @@ val keystoreProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 
-val appVersionName: String = (findProperty("versionName") as String?)?.takeIf { it.isNotBlank() } ?: "1.3.0"
-val appVersionCode: Int = (findProperty("versionCode") as String?)?.toIntOrNull() ?: 10300
+val appVersionName: String = (findProperty("versionName") as String?)?.takeIf { it.isNotBlank() } ?: "1.3.1"
+val appVersionCode: Int = (findProperty("versionCode") as String?)?.toIntOrNull() ?: 10301
 
 android {
     namespace = "com.yg.tweetsweeper"
