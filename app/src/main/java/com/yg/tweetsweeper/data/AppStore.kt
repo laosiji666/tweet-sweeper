@@ -97,14 +97,22 @@ class AppStore(context: Context) {
         runCatching { doneFile.delete() }
     }
 
-    fun saveDone(ids: Set<String>) {
-        runCatching { doneFile.writeText(json.encodeToString(ids.toList())) }
+    /** id -> 标记时间（毫秒）。旧版本存的是纯数组，读取时自动迁移并补上递增时间。 */
+    fun saveDone(marks: Map<String, Long>) {
+        runCatching { doneFile.writeText(json.encodeToString(marks)) }
     }
 
-    fun loadDone(): Set<String> = runCatching {
-        if (!doneFile.exists()) emptySet()
-        else json.decodeFromString<List<String>>(doneFile.readText()).toSet()
-    }.getOrDefault(emptySet())
+    fun loadDone(): Map<String, Long> = runCatching {
+        if (!doneFile.exists()) return@runCatching emptyMap<String, Long>()
+        val text = doneFile.readText().trim()
+        when {
+            text.startsWith("{") -> json.decodeFromString<Map<String, Long>>(text)
+            text.startsWith("[") -> json.decodeFromString<List<String>>(text)
+                .mapIndexed { index, id -> id to index.toLong() }
+                .toMap()
+            else -> emptyMap()
+        }
+    }.getOrDefault(emptyMap())
 
     fun loadWhitelist(): Set<String> = runCatching {
         if (!whitelistFile.exists()) emptySet()

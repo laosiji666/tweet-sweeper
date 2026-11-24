@@ -21,7 +21,13 @@ enum class LocalFilter(val label: String) {
     ALL("全部")
 }
 
-data class LocalRow(val id: String, val relation: String, val done: Boolean = false)
+data class LocalRow(
+    val id: String,
+    val relation: String,
+    val done: Boolean = false,
+    val doneAt: Long = 0L,
+    val kept: Boolean = false
+)
 
 data class LocalState(
     val ready: Boolean = false,
@@ -32,9 +38,12 @@ data class LocalState(
     val rows: List<LocalRow> = emptyList(),
     val importedAt: Long = 0L,
     val files: String = "",
-    val done: Set<String> = emptySet(),
+    val done: Map<String, Long> = emptyMap(),
+    val whitelist: Set<String> = emptySet(),
     val hideDone: Boolean = true,
+    val hideKept: Boolean = false,
     val donePresent: Int = 0,
+    val keptPresent: Int = 0,
     val nonMutual: Int = 0,
     val mutual: Int = 0,
     val fanOnly: Int = 0,
@@ -48,8 +57,14 @@ data class LocalState(
 }
 
 /**
+ * 列表排序：未处理的保持数据包原顺序在前；已处理的按标记时间倒序排在后面
+ * —— 最后取关的在最上面，最早取关的在最下面。
+ */
+internal fun orderRows(rows: List<LocalRow>): List<LocalRow> =
+    rows.filter { !it.done } + rows.filter { it.done }.sortedByDescending { it.doneAt }
+
+/**
  * 零成本模式：只用 X 官方数据导出（following.js / follower.js），不调用任何 API。
- * 结果按用户 ID 展示，点「打开主页」交给 X App 处理取关。
  */
 class LocalViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -62,22 +77,25 @@ class LocalViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             val archive = store.loadArchive()
             val done = store.loadDone()
+            val whitelist = store.loadWhitelist()
             _state.update { st ->
-                val base = st.copy(
-                    ready = true,
-                    following = archive?.following ?: emptyList(),
-                    follower = archive?.follower ?: emptyList(),
-                    importedAt = archive?.savedAt ?: 0L,
-                    done = done
+                rebuild(
+                    st.copy(
+                        ready = true,
+                        following = archive?.following ?: emptyList(),
+                        follower = archive?.follower ?: emptyList(),
+                        importedAt = archive?.savedAt ?: 0L,
+                        done = done,
+                        whitelist = whitelist
+                    )
                 )
-                rebuild(base)
             }
         }
     }
 
-    /** 点了「打开」就标记为已处理，默认从列表里隐藏 */
+    /** 点了「打开」就标记为已处理（记录时间），默认从列表里隐藏 */
     fun markDone(id: String) {
-        val done = _state.value.done + id
+        val done = _state.value.done + (id to System.currentTimeMillis())
         store.saveDone(done)
         _state.update { rebuild(it.copy(done = done)) }
     }
@@ -89,13 +107,33 @@ class LocalViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun resetDone() {
-        store.saveDone(emptySet())
-        _state.update { rebuild(it.copy(done = emptySet())) }
+        store.saveDone(emptyMap())
+        _state.update { rebuild(it.copy(done = emptyMap())) }
         showToast("已重置处理标记")
     }
 
     fun toggleHideDone() {
         _state.update { rebuild(it.copy(hideDone = !it.hideDone)) }
+    }
+
+    /** 保留（加入白名单）：离线模式下不会被列入清理，也用于对照 API 模式的白名单 */
+    fun toggleKeep(id: String) {
+        val wl = _state.value.whitelist.toMutableSet()
+        val added = wl.add(id)
+        if (!added) wl.remove(id)
+        store.saveWhitelist(wl)
+        _state.update { rebuild(it.copy(whitelist = wl)) }
+        showToast(if (added) "已加入白名单" else "已移出白名单")
+    }
+
+    fun toggleHideKept() {
+        _state.update { rebuild(it.copy(hideKept = !it.hideKept)) }
+    }
+
+    fun resetKept() {
+        store.saveWhitelist(emptySet())
+        _state.update { rebuild(it.copy(whitelist = emptySet())) }
+        showToast("已清空白名单")
     }
 
     /**
@@ -147,7 +185,7 @@ class LocalViewModel(app: Application) : AndroidViewModel(app) {
     fun clear() {
         store.clearArchive()
         _state.update { st ->
-            rebuild(st.copy(following = emptyList(), follower = emptyList(), importedAt = 0L, files = "", done = emptySet()))
+            rebuild(st.copy(following = emptyList(), follower = emptyList(), importedAt = 0L, files = "", done = emptyMap()))
         }
         showToast("已清除离线数据")
     }
@@ -157,13 +195,18 @@ class LocalViewModel(app: Application) : AndroidViewModel(app) {
         if (!st.hasData) return ""
         val followingSet = st.following.toHashSet()
         val followerSet = st.follower.toHashSet()
-        val sb = StringBuilder("user_id,profile_url,relation\n")
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+        val sb = StringBuilder("user_id,profile_url,relation,kept,done_at\n")
         st.following.forEach { id ->
             val rel = if (id in followerSet) "互关" else "不互关"
-            sb.append(id).append(",https://x.com/i/user/").append(id).append(',').append(rel).append('\n')
+            sb.append(id).append(",https://x.com/i/user/").append(id).append(',').append(rel).append(',')
+            sb.append(if (id in st.whitelist) "1" else "0").append(',')
+            sb.append(st.done[id]?.let { fmt.format(java.util.Date(it)) } ?: "").append('\n')
         }
         st.follower.filter { it !in followingSet }.forEach { id ->
-            sb.append(id).append(",https://x.com/i/user/").append(id).append(",仅粉丝\n")
+            sb.append(id).append(",https://x.com/i/user/").append(id).append(",仅粉丝,")
+            sb.append(if (id in st.whitelist) "1" else "0").append(',')
+            sb.append(st.done[id]?.let { fmt.format(java.util.Date(it)) } ?: "").append('\n')
         }
         return sb.toString()
     }
@@ -172,7 +215,7 @@ class LocalViewModel(app: Application) : AndroidViewModel(app) {
         val st = _state.value
         val followerSet = st.follower.toHashSet()
         val sb = StringBuilder("user_id,profile_url\n")
-        st.following.filter { it !in followerSet }.forEach { id ->
+        st.following.filter { it !in followerSet && it !in st.whitelist }.forEach { id ->
             sb.append(id).append(",https://x.com/i/user/").append(id).append('\n')
         }
         return sb.toString()
@@ -189,21 +232,35 @@ class LocalViewModel(app: Application) : AndroidViewModel(app) {
     private fun rebuild(st: LocalState): LocalState {
         val followingSet = st.following.toHashSet()
         val followerSet = st.follower.toHashSet()
+
+        fun row(id: String, relation: String) = LocalRow(
+            id = id,
+            relation = relation,
+            done = id in st.done,
+            doneAt = st.done[id] ?: 0L,
+            kept = id in st.whitelist
+        )
+
         val all = when (st.filter) {
             LocalFilter.NON_MUTUAL ->
-                st.following.filter { it !in followerSet }.map { LocalRow(it, "不互关", it in st.done) }
+                st.following.filter { it !in followerSet }.map { row(it, "不互关") }
             LocalFilter.MUTUAL ->
-                st.following.filter { it in followerSet }.map { LocalRow(it, "互关", it in st.done) }
+                st.following.filter { it in followerSet }.map { row(it, "互关") }
             LocalFilter.FANS ->
-                st.follower.filter { it !in followingSet }.map { LocalRow(it, "仅粉丝", it in st.done) }
+                st.follower.filter { it !in followingSet }.map { row(it, "仅粉丝") }
             LocalFilter.ALL ->
-                st.following.map { LocalRow(it, if (it in followerSet) "互关" else "不互关", it in st.done) } +
-                    st.follower.filter { it !in followingSet }.map { LocalRow(it, "仅粉丝", it in st.done) }
+                st.following.map { row(it, if (it in followerSet) "互关" else "不互关") } +
+                    st.follower.filter { it !in followingSet }.map { row(it, "仅粉丝") }
         }
-        val rows = if (st.hideDone) all.filter { !it.done } else all
+
+        var visible = all
+        if (st.hideDone) visible = visible.filter { !it.done }
+        if (st.hideKept) visible = visible.filter { !it.kept }
+
         return st.copy(
-            rows = rows,
-            donePresent = st.done.count { it in followingSet || it in followerSet },
+            rows = orderRows(visible),
+            donePresent = st.done.keys.count { it in followingSet || it in followerSet },
+            keptPresent = st.whitelist.count { it in followingSet || it in followerSet },
             nonMutual = st.following.count { it !in followerSet },
             mutual = st.following.count { it in followerSet },
             fanOnly = st.follower.count { it !in followingSet }
